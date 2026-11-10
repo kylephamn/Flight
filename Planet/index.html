@@ -1,0 +1,842 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Merge orbits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --space: #03040a;
+    --ink: #e2e6f3;
+    --ink-dim: #9aa2bc;
+    --ink-faint: #5d6580;
+    --line: rgba(190, 200, 232, 0.16);
+    --panel: rgba(10, 13, 28, 0.82);
+    --panel-line: rgba(170, 186, 232, 0.18);
+    --danger: #ff9a8a;
+    --c: #8fb8ff;
+    --font: "Jost", "Futura", "Century Gothic", "Avenir Next", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--space); color: var(--ink);
+    font-family: var(--font); font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #sky { z-index: 0; }
+  #scene { z-index: 1; touch-action: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 1px solid rgba(220, 230, 255, 0.8); outline-offset: 3px; }
+
+#star-label {
+position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none;
+font-size: 10px; font-weight: 400; letter-spacing: 0.32em;
+color: rgba(255, 233, 200, 0.62); white-space: nowrap;
+}
+
+/* Add button */
+.add {
+position: fixed; z-index: 10;
+left: calc(20px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom));
+width: 56px; height: 56px; border-radius: 50%;
+background: rgba(14, 18, 38, 0.7); border: 1px solid var(–panel-line);
+display: grid; place-items: center; padding: 0;
+backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+transition: border-color 0.2s, background 0.2s;
+}
+.add:hover { border-color: rgba(220, 230, 255, 0.45); background: rgba(22, 28, 56, 0.8); }
+.add:disabled { opacity: 0.35; cursor: not-allowed; }
+.add span { position: absolute; width: 18px; height: 1.5px; background: var(–ink); border-radius: 1px; }
+.add span + span { transform: rotate(90deg); }
+.hint {
+position: fixed; z-index: 10;
+left: calc(90px + env(safe-area-inset-left)); bottom: calc(38px + env(safe-area-inset-bottom));
+font-size: 14px; color: var(–ink-dim); pointer-events: none;
+}
+
+/* Info card */
+.card {
+position: fixed; left: 0; top: 0; z-index: 20; width: 256px;
+padding: 16px 16px 12px; border-radius: 14px;
+background: var(–panel); border: 1px solid var(–panel-line);
+box-shadow: 0 0 40px -10px color-mix(in srgb, var(–c) 45%, transparent);
+backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.card-name {
+width: 100%; background: transparent; border: 0;
+border-bottom: 1px solid var(–line); color: var(–ink);
+font: 400 18px/1.3 var(–font); padding: 2px 0 6px; outline: none;
+}
+.card-name:focus { border-bottom-color: var(–c); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.steps { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.step {
+display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 6px 8px;
+background: none; border: 0; border-radius: 8px; text-align: left;
+font-size: 14px; line-height: 1.25; color: var(–ink-dim);
+transition: background 0.15s, color 0.15s;
+}
+.step:hover { background: rgba(190, 200, 232, 0.07); color: var(–ink); }
+.step .pip { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(200, 210, 236, 0.45); }
+.step.done .pip { background: color-mix(in srgb, var(–c) 65%, transparent); border-color: transparent; }
+.step.current { color: var(–ink); background: color-mix(in srgb, var(–c) 13%, transparent); }
+.step.current .pip { background: var(–c); border-color: var(–c); box-shadow: 0 0 8px var(–c); }
+.step.preview { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(–c) 70%, transparent); color: var(–ink); }
+.step .short { display: none; }
+.step-caption { margin: 8px 0 0 8px; font-size: 12px; color: var(–ink-faint); }
+.card-remove { margin-top: 8px; min-height: 30px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; color: var(–ink-dim); }
+.link { background: none; border: 0; padding: 4px 0; font-size: 13px; color: var(–ink-dim); min-height: 30px; }
+.link:hover { color: var(–ink); }
+.link.danger { color: var(–danger); }
+
+/* Summary */
+.summary {
+position: fixed; z-index: 10;
+right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom));
+width: 272px; max-height: min(60vh, 460px); display: flex; flex-direction: column;
+border-radius: 14px; background: rgba(10, 13, 28, 0.66); border: 1px solid var(–panel-line);
+backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.summary-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 14px; gap: 8px; }
+.summary-count { background: none; border: 0; padding: 6px 0; font-size: 14px; font-weight: 400; min-height: 34px; display: flex; align-items: center; gap: 8px; }
+.summary-count .chev { width: 7px; height: 7px; border-right: 1px solid var(–ink-dim); border-bottom: 1px solid var(–ink-dim); transform: rotate(45deg) translateY(-2px); transition: transform 0.2s; }
+.summary.collapsed .chev { transform: rotate(-135deg) translateY(-1px); }
+.summary.collapsed .summary-list, .summary.collapsed .confirm { display: none; }
+.confirm { padding: 0 14px 8px; font-size: 13px; color: var(–ink-dim); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.summary-list { list-style: none; margin: 0; padding: 0 6px 6px; overflow-y: auto; border-top: 1px solid var(–line); }
+.summary-list li { display: flex; align-items: center; gap: 2px; }
+.row-adv {
+flex: none; width: 34px; min-height: 34px; border-radius: 8px; padding: 0;
+background: none; border: 0; display: grid; place-items: center; color: var(–ink-dim);
+}
+.row-adv:hover:not(:disabled) { background: rgba(190, 200, 232, 0.1); color: var(–ink); }
+.row-adv:disabled { opacity: 0.28; cursor: default; }
+.row-adv .arr { width: 6px; height: 6px; border-right: 1.2px solid currentColor; border-top: 1.2px solid currentColor; transform: translateX(-1px) rotate(45deg); }
+.row {
+flex: 1; min-width: 0; display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px;
+background: none; border: 0; border-radius: 8px; padding: 7px 8px; min-height: 34px; text-align: left; font-size: 13px;
+}
+.row:hover, .row[aria-current=“true”] { background: rgba(190, 200, 232, 0.08); }
+.row .dot { width: 8px; height: 8px; border-radius: 50%; }
+.row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(–ink); }
+.row .st { color: var(–ink-faint); white-space: nowrap; }
+.row .st.merged { color: var(–ink-dim); }
+
+@media (max-width: 640px), (pointer: coarse) {
+.link, .summary-count, .row, .step { min-height: 44px; }
+.row-adv { width: 44px; min-height: 44px; }
+}
+@media (max-width: 640px) {
+.card {
+top: auto !important; bottom: 0; left: 0; right: 0; width: auto; transform: none !important;
+border-radius: 18px 18px 0 0; border-bottom: 0;
+padding: 16px 18px calc(12px + env(safe-area-inset-bottom));
+}
+.steps { flex-direction: row; gap: 4px; }
+.step {
+flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 7px;
+min-height: 60px; padding: 8px 2px; text-align: center; font-size: 12px;
+}
+.step .full { display: none; }
+.step .short { display: block; }
+.step-caption { margin-left: 2px; }
+.summary { width: min(250px, calc(100vw - 110px)); max-height: 50vh; }
+body.has-selection .summary, body.has-selection .add, body.has-selection .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+* { transition: none !important; }
+}
+</style>
+
+</head>
+<body>
+<canvas id="sky" aria-hidden="true"></canvas>
+<canvas id="scene" aria-label="Merge requests shown as planets orbiting the protected branch"></canvas>
+<div id="star-label" aria-hidden="true">PROTECTED</div>
+
+<button id="add" class="add" aria-label="Add merge request" title="Add merge request"><span></span><span></span></button>
+
+<div id="hint" class="hint">Add a merge request</div>
+
+<section id="card" class="card" aria-label="Selected merge request" hidden>
+  <input id="card-name" class="card-name" maxlength="40" spellcheck="false" autocomplete="off" aria-label="Merge request name">
+  <p id="card-state" class="sr" aria-live="polite"></p>
+  <div id="card-steps" class="steps" role="group" aria-label="Set state"></div>
+  <p class="step-caption">Or drag the planet along its orbit</p>
+  <div class="card-remove">
+    <button id="btn-remove" class="link">Remove</button>
+    <span id="remove-confirm" hidden>Remove this merge request?</span>
+    <button id="remove-yes" class="link danger" hidden>Remove</button>
+    <button id="remove-no" class="link" hidden>Keep</button>
+  </div>
+</section>
+
+<aside id="summary" class="summary" aria-label="All merge requests" hidden>
+  <div class="summary-head">
+    <button id="summary-toggle" class="summary-count" aria-expanded="true" aria-controls="summary-list">
+      <span id="merged-count">0 of 0 merged</span><span class="chev" aria-hidden="true"></span>
+    </button>
+    <button id="clear-all" class="link">Clear all</button>
+  </div>
+  <div id="clear-confirm" class="confirm" hidden>
+    <span>Clear every merge request?</span>
+    <button id="clear-yes" class="link danger">Clear all</button>
+    <button id="clear-no" class="link">Cancel</button>
+  </div>
+  <ul id="summary-list" class="summary-list"></ul>
+</aside>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- Constants ----------
+  const STATES = [
+    { full: "Last story merged into feature", short: "Story merged" },
+    { full: "Reviewers assigned", short: "In review" },
+    { full: "Testing started", short: "Testing" },
+    { full: "Testing finished, accepted by SME", short: "SME accepted" },
+    { full: "Merged into protected", short: "Merged" }
+  ];
+  const COLORS = ["#8fb8ff", "#ffb877", "#8fe3c0", "#f592b4", "#c4a6ff", "#ffe08a",
+                  "#6fd6e8", "#ff917c", "#b8dc8a", "#e8a8e2", "#8a9cff", "#f2c9a2"];
+  const SIZES = [7, 9.5, 5.5, 8, 10.5, 6, 8.8, 6.6, 11, 5.2, 7.6, 9.8];
+  const MAX = 12;
+  const KEY = "mr-orbits-v1";
+  const ELLIPSE = 0.68; // vertical squash for the tilted look
+  const TAU = Math.PI * 2;
+  const rad = d => (d * Math.PI) / 180;
+
+  // ---------- Elements ----------
+  const $ = id => document.getElementById(id);
+  const sky = $("sky"), scene = $("scene");
+  const sctx = sky.getContext("2d"), ctx = scene.getContext("2d");
+  const starLabel = $("star-label"), addBtn = $("add"), hint = $("hint");
+  const card = $("card"), nameInput = $("card-name"), stateText = $("card-state");
+  const stepEls = STATES.map(s => {
+    const b = document.createElement("button");
+    b.className = "step";
+    b.innerHTML = '<span class="pip" aria-hidden="true"></span><span class="full"></span><span class="short" aria-hidden="true"></span>';
+    b.querySelector(".full").textContent = s.full;
+    b.querySelector(".short").textContent = s.short;
+    $("card-steps").append(b);
+    return b;
+  });
+  const removeBtn = $("btn-remove"), removeConfirm = $("remove-confirm"), removeYes = $("remove-yes"), removeNo = $("remove-no");
+  const summary = $("summary"), summaryToggle = $("summary-toggle"), mergedCount = $("merged-count");
+  const clearAll = $("clear-all"), clearConfirm = $("clear-confirm"), clearYes = $("clear-yes"), clearNo = $("clear-no");
+  const list = $("summary-list");
+
+  const reduceMQ = matchMedia("(prefers-reduced-motion: reduce)");
+  const dockMQ = matchMedia("(max-width: 640px)");
+  let reduce = reduceMQ.matches;
+
+  // ---------- Storage (falls back to memory if localStorage is blocked) ----------
+  const store = {
+    mem: null,
+    load() {
+      try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }
+      catch (e) { return this.mem; }
+    },
+    save(data) {
+      this.mem = data;
+      try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* memory only */ }
+    }
+  };
+
+  // ---------- State ----------
+  let planets = [];
+  let counter = 0;
+  let selectedId = null;
+  let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, Rmax = 100, R0 = 40, starR = 12;
+  let stars = [];
+  let skyDirty = true;
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  function makeStops() {
+    const launch = rand(-20, 20);
+    const off = () => (Math.random() < 0.5 ? -1 : 1) * rand(15, 20);
+    const s = [launch, launch + 90 + off(), launch + 180 + off(), launch + 270 + off(), launch + 360];
+    for (let i = 1; i < 5; i++) if (s[i] < s[i - 1] + 10) s[i] = s[i - 1] + 10; // keep order
+    return s.map(v => Math.round(v * 10) / 10);
+  }
+
+  function validStops(s) {
+    if (!Array.isArray(s) || s.length !== 5 || !s.every(Number.isFinite)) return false;
+    for (let i = 1; i < 5; i++) if (s[i] <= s[i - 1]) return false;
+    return true;
+  }
+
+  function load() {
+    const d = store.load();
+    if (!d || !Array.isArray(d.planets)) return;
+    counter = Number(d.counter) || 0;
+    planets = d.planets.filter(p => p && typeof p.name === "string").slice(0, MAX).map((p, i) => {
+      const stops = validStops(p.stops) ? p.stops : makeStops();
+      const state = Math.max(0, Math.min(4, Math.round(Number(p.state) || 0)));
+      return {
+        id: p.id || uid(), name: p.name, color: p.color || COLORS[i % COLORS.length],
+        size: Number(p.size) || 7, orbit: i, stops, state,
+        angle: stops[state], anim: null, flareAt: -1e9, pendingFlare: false
+      };
+    });
+    counter = Math.max(counter, planets.length);
+  }
+
+  function save() {
+    store.save({
+      v: 1, counter,
+      planets: planets.map(p => ({
+        id: p.id, name: p.name, color: p.color, size: p.size, orbit: p.orbit, stops: p.stops, state: p.state
+      }))
+    });
+  }
+
+  // ---------- Color helpers ----------
+  function hexRgb(hex) {
+    const n = parseInt(hex.replace("#", ""), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgba(hex, a) { const [r, g, b] = hexRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+  function mix(hex, target, f, a = 1) {
+    const [r, g, b] = hexRgb(hex);
+    return `rgba(${Math.round(r + (target - r) * f)},${Math.round(g + (target - g) * f)},${Math.round(b + (target - b) * f)},${a})`;
+  }
+
+  // ---------- Layout ----------
+  function layout() {
+    W = innerWidth; H = innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    for (const c of [sky, scene]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    const topPad = 40;
+    const bottomPad = 92;
+    cx = W / 2;
+    cy = topPad + (H - topPad - bottomPad) / 2;
+    const maxRx = W / 2 - 40;
+    const maxRy = (H - topPad - bottomPad) / 2 - 14;
+    Rmax = Math.max(70, Math.min(maxRx, maxRy / ELLIPSE));
+    R0 = Math.max(36, Rmax * 0.15);
+    starR = Math.max(9, Math.min(17, R0 * 0.3));
+    starLabel.style.transform = `translate(${cx}px, ${cy + starR + 14}px) translateX(-50%)`;
+    makeStars();
+    skyDirty = true;
+  }
+
+  function ringGap() { return (Rmax - R0) / Math.max(planets.length, 4); }
+  function ringRadius(i) { return R0 + ringGap() * (i + 1); }
+  function planetScale() { return Math.max(0.5, Math.min(1, ringGap() / 36)); }
+
+  function pointOn(rx, deg) {
+    const t = rad(deg);
+    return { x: cx + rx * Math.sin(t), y: cy - rx * ELLIPSE * Math.cos(t) };
+  }
+
+  // ---------- Background stars ----------
+  function makeStars() {
+    const count = Math.round(Math.max(200, Math.min(420, (W * H) / 4200)));
+    stars = [];
+    for (let i = 0; i < count; i++) {
+      const roll = Math.random();
+      let c = "rgb(255,255,255)", a = rand(0.25, 0.85);
+      if (roll < 0.06) { c = "rgb(168,198,255)"; a = rand(0.3, 0.6); }
+      else if (roll < 0.12) { c = "rgb(255,228,194)"; a = rand(0.3, 0.6); }
+      const big = Math.random() < 0.06;
+      stars.push({
+        x: Math.random() * W, y: Math.random() * H,
+        r: big ? rand(1.1, 1.7) : rand(0.3, 1.0),
+        a, c, amp: rand(0.25, 0.7),
+        speed: rand(0.0003, 0.0011), phase: rand(0, TAU)
+      });
+    }
+  }
+
+  function drawSky(t) {
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = sctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.8);
+    g.addColorStop(0, "#0a0e21");
+    g.addColorStop(0.45, "#05071a");
+    g.addColorStop(1, "#020308");
+    sctx.fillStyle = g;
+    sctx.fillRect(0, 0, W, H);
+    for (const s of stars) {
+      const tw = reduce ? 1 : (1 - s.amp) + s.amp * (0.5 + 0.5 * Math.sin(t * s.speed + s.phase));
+      sctx.globalAlpha = s.a * tw;
+      sctx.fillStyle = s.c;
+      sctx.beginPath(); sctx.arc(s.x, s.y, s.r, 0, TAU); sctx.fill();
+      if (s.r > 1.1) {
+        sctx.globalAlpha = s.a * tw * 0.12;
+        sctx.beginPath(); sctx.arc(s.x, s.y, s.r * 3.2, 0, TAU); sctx.fill();
+      }
+    }
+    sctx.globalAlpha = 1;
+  }
+
+  // ---------- Scene ----------
+  const ease = e => (e < 0.5 ? 4 * e * e * e : 1 - Math.pow(-2 * e + 2, 3) / 2);
+
+  function stepAnim(p, t) {
+    if (!p.anim) return;
+    const e = Math.min(1, (t - p.anim.t0) / p.anim.dur);
+    p.angle = p.anim.from + (p.anim.to - p.anim.from) * ease(e);
+    if (e >= 1) {
+      p.angle = p.anim.to; p.anim = null;
+      if (p.pendingFlare) { p.pendingFlare = false; p.flareAt = t; }
+    }
+  }
+
+  function drawStar(t) {
+    const pulse = reduce ? 1 : 1 + 0.06 * Math.sin(t * 0.0015);
+    const glowR = starR * 5.5 * pulse;
+    let g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+    g.addColorStop(0, "rgba(255,226,182,0.38)");
+    g.addColorStop(0.3, "rgba(255,206,150,0.12)");
+    g.addColorStop(1, "rgba(255,200,140,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, TAU); ctx.fill();
+    g = ctx.createRadialGradient(cx, cy, 0, cx, cy, starR * pulse);
+    g.addColorStop(0, "rgba(255,255,250,1)");
+    g.addColorStop(0.55, "rgba(255,236,204,0.95)");
+    g.addColorStop(1, "rgba(255,214,160,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, starR * pulse, 0, TAU); ctx.fill();
+  }
+
+  function drawOrbit(p) {
+    const rx = ringRadius(p.orbit), ry = rx * ELLIPSE;
+    const merged = p.state === 4 && !p.anim && !p.dragging;
+    ctx.save();
+    // base ring
+    ctx.lineWidth = merged ? 1.3 : 1;
+    ctx.strokeStyle = merged ? rgba(p.color, 0.55) : "rgba(190,200,232,0.13)";
+    if (merged) { ctx.shadowColor = p.color; ctx.shadowBlur = 6; }
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // traveled arc
+    const start = p.stops[0];
+    if (!merged && p.angle > start + 0.05) {
+      ctx.strokeStyle = rgba(p.color, 0.9);
+      ctx.lineWidth = 1.6;
+      ctx.shadowColor = p.color; ctx.shadowBlur = 9;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, rad(start - 90), rad(p.angle - 90));
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    // state markers (stop 5 shares the launch point)
+    for (let i = 0; i < 4; i++) {
+      const pt = pointOn(rx, p.stops[i]);
+      const reached = i <= p.state;
+      ctx.fillStyle = reached ? p.color : "rgba(200,210,236,0.38)";
+      ctx.strokeStyle = ctx.fillStyle;
+      if (i === 0) {
+        const th = rad(p.stops[0]);
+        let nx = Math.sin(th) / rx, ny = -Math.cos(th) / ry;
+        const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(pt.x - nx * 5, pt.y - ny * 5); ctx.lineTo(pt.x + nx * 5, pt.y + ny * 5); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, reached ? 2.1 : 1.7, 0, TAU); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawPlanet(p, t) {
+    const rx = ringRadius(p.orbit), ry = rx * ELLIPSE;
+    const { x, y } = pointOn(rx, p.angle);
+    const depth = 0.86 + 0.14 * (((y - cy) / (ry || 1)) + 1) / 2;
+    const r = p.size * planetScale() * depth;
+    p._x = x; p._y = y; p._r = r;
+    const merged = p.state === 4 && !p.anim && !p.dragging;
+    const selected = p.id === selectedId;
+
+    // flare
+    const fe = (t - p.flareAt) / 1500;
+    if (fe >= 0 && fe < 1) {
+      const fr = reduce ? r * 5 : r * (2 + fe * 8);
+      const fa = reduce ? 0.5 * (1 - fe) : 0.75 * Math.pow(1 - fe, 2);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, fr);
+      g.addColorStop(0, `rgba(255,255,255,${fa})`);
+      g.addColorStop(0.3, rgba(p.color, fa * 0.6));
+      g.addColorStop(1, rgba(p.color, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, fr, 0, TAU); ctx.fill();
+    }
+
+    const ringTilt = -0.38;
+    if (merged) { // back half of ring
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ringTilt);
+      ctx.strokeStyle = rgba(p.color, 0.55); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 2.2, r * 0.6, 0, Math.PI, TAU); ctx.stroke();
+      ctx.restore();
+    }
+
+    // body
+    ctx.save();
+    ctx.shadowColor = p.color; ctx.shadowBlur = r * (selected ? 3.6 : 2.4);
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, mix(p.color, 255, 0.6));
+    g.addColorStop(0.55, p.color);
+    g.addColorStop(1, mix(p.color, 10, 0.45));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    if (merged) { // front half of ring
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ringTilt);
+      ctx.strokeStyle = rgba(p.color, 0.9); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 2.2, r * 0.6, 0, 0, Math.PI); ctx.stroke();
+      ctx.restore();
+    }
+
+    if (selected) {
+      ctx.strokeStyle = "rgba(235,240,255,0.65)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, r + (merged ? r * 1.6 : 7), 0, TAU); ctx.stroke();
+    } else {
+      // name label
+      let label = p.name || "Untitled";
+      if (label.length > 20) label = label.slice(0, 19) + "\u2026";
+      ctx.font = "400 12px Jost, Futura, 'Century Gothic', sans-serif";
+      ctx.fillStyle = "rgba(226,230,243,0.78)";
+      const w = ctx.measureText(label).width;
+      const gap = merged ? r * 2.4 + 6 : r + 8;
+      const lx = x + gap + w > W - 8 ? x - gap - w : x + gap;
+      ctx.fillText(label, lx, y + 4);
+    }
+  }
+
+  function drawScene(t) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    for (const p of planets) stepAnim(p, t);
+    for (const p of planets) drawOrbit(p);
+    const withY = planets.map(p => ({ p, y: pointOn(ringRadius(p.orbit), p.angle).y }));
+    withY.sort((a, b) => a.y - b.y);
+    for (const { p, y } of withY) if (y < cy) drawPlanet(p, t);
+    drawStar(t);
+    for (const { p, y } of withY) if (y >= cy) drawPlanet(p, t);
+  }
+
+  function frame(t) {
+    if (!reduce || skyDirty) { drawSky(t); skyDirty = false; }
+    drawScene(t);
+    positionCard();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Actions ----------
+  const getSel = () => planets.find(p => p.id === selectedId) || null;
+
+  function animateTo(p, deg) {
+    if (reduce) { p.angle = deg; p.anim = null; if (p.pendingFlare) { p.pendingFlare = false; p.flareAt = performance.now(); } return; }
+    const from = p.angle;
+    p.anim = { from, to: deg, t0: performance.now(), dur: 450 + Math.abs(deg - from) * 6.5 };
+  }
+
+  // Every way of stepping (buttons, step bar, summary arrows, keys) goes through here.
+  function setState(p, s) {
+    if (!p) return;
+    s = Math.max(0, Math.min(4, s));
+    if (s === p.state) return;
+    p.state = s;
+    if (s === 4) { p.pendingFlare = true; }
+    else { p.pendingFlare = false; p.flareAt = -1e9; }
+    animateTo(p, p.stops[s]);
+    save(); renderCard(); renderSummary();
+  }
+  const advance = p => p && setState(p, p.state + 1);
+  const back = p => p && setState(p, p.state - 1);
+
+  function cycleSelection(dir) {
+    if (!planets.length) return;
+    const i = planets.findIndex(p => p.id === selectedId);
+    const next = i < 0 ? (dir > 0 ? 0 : planets.length - 1) : (i + dir + planets.length) % planets.length;
+    select(planets[next].id);
+  }
+
+  function addPlanet() {
+    if (planets.length >= MAX) return;
+    counter++;
+    const used = new Set(planets.map(p => p.color));
+    const color = COLORS.find(c => !used.has(c)) || COLORS[planets.length % COLORS.length];
+    const size = SIZES[(counter - 1) % SIZES.length] + rand(-0.4, 0.4);
+    const stops = makeStops();
+    const p = {
+      id: uid(), name: `MR ${counter}`, color, size: Math.round(size * 10) / 10,
+      orbit: planets.length, stops, state: 0, angle: stops[0], anim: null, flareAt: -1e9, pendingFlare: false
+    };
+    planets.push(p);
+    save();
+    select(p.id);
+    renderSummary();
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  function removePlanet(p) {
+    planets = planets.filter(q => q.id !== p.id);
+    planets.forEach((q, i) => (q.orbit = i));
+    save();
+    deselect();
+    renderSummary();
+  }
+
+  function select(id) {
+    if (selectedId !== id && document.activeElement === nameInput) nameInput.blur();
+    selectedId = id;
+    document.body.classList.toggle("has-selection", !!id);
+    hideRemoveConfirm();
+    renderCard();
+    renderSummary();
+  }
+
+  function deselect() {
+    if (document.activeElement === nameInput) nameInput.blur();
+    selectedId = null;
+    document.body.classList.remove("has-selection");
+    card.hidden = true;
+    renderSummary();
+  }
+
+  // ---------- Card ----------
+  function renderCard() {
+    const p = getSel();
+    if (!p) { card.hidden = true; return; }
+    card.hidden = false;
+    card.style.setProperty("--c", p.color);
+    if (document.activeElement !== nameInput) nameInput.value = p.name;
+    stateText.textContent = STATES[p.state].full;
+    renderSteps(p, -1);
+  }
+
+  function renderSteps(p, preview) {
+    stepEls.forEach((b, i) => {
+      b.className = "step" + (i < p.state ? " done" : i === p.state ? " current" : "") +
+        (i === preview && i !== p.state ? " preview" : "");
+      b.title = STATES[i].full;
+      b.setAttribute("aria-label", `Step ${i + 1} of 5: ${STATES[i].full}`);
+      if (i === p.state) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    });
+  }
+
+  function positionCard() {
+    const p = getSel();
+    if (!p || card.hidden || dockMQ.matches || p._x === undefined) return;
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    const gap = (p.state === 4 ? p._r * 2.4 : p._r) + 20;
+    let left = p._x + gap;
+    if (left + cw > W - 12) left = p._x - gap - cw;
+    left = Math.max(12, Math.min(left, W - cw - 12));
+    let top = p._y - ch / 2;
+    top = Math.max(12, Math.min(top, H - ch - 12));
+    card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+  }
+
+  function showRemoveConfirm() {
+    removeBtn.hidden = true;
+    removeConfirm.hidden = removeYes.hidden = removeNo.hidden = false;
+    removeNo.focus();
+  }
+  function hideRemoveConfirm() {
+    removeBtn.hidden = false;
+    removeConfirm.hidden = removeYes.hidden = removeNo.hidden = true;
+  }
+
+  // ---------- Summary ----------
+  function renderSummary() {
+    summary.hidden = planets.length === 0;
+    hint.hidden = planets.length > 0;
+    addBtn.disabled = planets.length >= MAX;
+    addBtn.title = planets.length >= MAX ? `Up to ${MAX} merge requests` : "Add merge request";
+    const merged = planets.filter(p => p.state === 4).length;
+    mergedCount.textContent = `${merged} of ${planets.length} merged`;
+    const focusAdv = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.advFor : null;
+    list.textContent = "";
+    for (const p of planets) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.className = "row";
+      b.setAttribute("aria-current", p.id === selectedId ? "true" : "false");
+      const dot = document.createElement("span");
+      dot.className = "dot"; dot.style.background = p.color; dot.style.boxShadow = `0 0 6px ${p.color}`;
+      const nm = document.createElement("span");
+      nm.className = "nm"; nm.textContent = p.name || "Untitled";
+      const st = document.createElement("span");
+      st.className = "st" + (p.state === 4 ? " merged" : ""); st.textContent = STATES[p.state].short;
+      b.append(dot, nm, st);
+      b.setAttribute("aria-label", `${p.name}, ${STATES[p.state].full}`);
+      b.addEventListener("click", () => select(p.id));
+      const adv = document.createElement("button");
+      adv.className = "row-adv";
+      adv.dataset.advFor = p.id;
+      adv.disabled = p.state === 4;
+      adv.title = p.state === 4 ? "Merged" : `Advance to ${STATES[p.state + 1].full.toLowerCase()}`;
+      adv.setAttribute("aria-label", p.state === 4 ? `${p.name} is merged` : `Advance ${p.name}`);
+      adv.innerHTML = '<span class="arr" aria-hidden="true"></span>';
+      adv.addEventListener("click", () => advance(p));
+      li.append(b, adv);
+      list.append(li);
+      if (focusAdv === p.id) (adv.disabled ? b : adv).focus();
+    }
+  }
+
+  function setCollapsed(c) {
+    summary.classList.toggle("collapsed", c);
+    summaryToggle.setAttribute("aria-expanded", String(!c));
+  }
+
+  // ---------- Hit testing ----------
+  function hit(x, y) {
+    let best = null, bestD = Infinity;
+    for (const p of planets) {
+      if (p._x === undefined) continue;
+      const d = Math.hypot(x - p._x, y - p._y);
+      const reach = Math.max(p._r + 14, 22);
+      if (d < reach && d < bestD) { best = p; bestD = d; }
+    }
+    return best;
+  }
+
+  // ---------- Events ----------
+  addBtn.addEventListener("click", addPlanet);
+
+  // Tap selects; dragging a planet slides it along its orbit and snaps to the nearest stop.
+  let drag = null; // { p, id, x0, y0, moved }
+
+  // Angle on the planet's orbit under the pointer, kept continuous with `near`
+  // and clamped to the planet's own launch..merge span so it never wraps past launch.
+  function orbitAngle(p, x, y, near) {
+    const a = (Math.atan2(x - cx, -(y - cy) / ELLIPSE) * 180) / Math.PI;
+    const lo = p.stops[0], hi = p.stops[4];
+    let best = a, bestD = Infinity;
+    for (let k = -2; k <= 2; k++) {
+      const c = a + 360 * k, d = Math.abs(c - near);
+      if (d < bestD) { best = c; bestD = d; }
+    }
+    return Math.max(lo, Math.min(hi, best));
+  }
+
+  function nearestStop(p, deg) {
+    let best = 0;
+    for (let i = 1; i < 5; i++) if (Math.abs(p.stops[i] - deg) < Math.abs(p.stops[best] - deg)) best = i;
+    return best;
+  }
+
+  scene.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    const p = hit(e.clientX, e.clientY);
+    drag = { p, id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false };
+    if (p) scene.setPointerCapture(e.pointerId);
+  });
+
+  scene.addEventListener("pointermove", e => {
+    if (!drag || drag.id !== e.pointerId) {
+      if (e.pointerType === "mouse") scene.style.cursor = hit(e.clientX, e.clientY) ? "grab" : "default";
+      return;
+    }
+    const p = drag.p;
+    if (!p) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 6) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      if (selectedId !== p.id) select(p.id);
+      p.dragging = true;
+      p.anim = null; p.pendingFlare = false;
+      scene.style.cursor = "grabbing";
+    }
+    p.angle = orbitAngle(p, e.clientX, e.clientY, p.angle);
+    renderSteps(p, nearestStop(p, p.angle));
+  });
+
+  function endDrag(e, cancelled) {
+    if (!drag || drag.id !== e.pointerId) return;
+    const { p, moved } = drag;
+    drag = null;
+    if (scene.hasPointerCapture(e.pointerId)) scene.releasePointerCapture(e.pointerId);
+    if (!moved) {
+      if (!cancelled) { if (p) select(p.id); else deselect(); }
+      return;
+    }
+    p.dragging = false;
+    scene.style.cursor = e.pointerType === "mouse" ? "grab" : "default";
+    const s = cancelled ? p.state : nearestStop(p, p.angle);
+    if (s === p.state) { animateTo(p, p.stops[s]); renderCard(); }
+    else setState(p, s);
+  }
+  scene.addEventListener("pointerup", e => endDrag(e, false));
+  scene.addEventListener("pointercancel", e => endDrag(e, true));
+
+  nameInput.addEventListener("input", () => {
+    const p = getSel(); if (!p) return;
+    p.name = nameInput.value;
+    save(); renderSummary();
+  });
+  nameInput.addEventListener("blur", () => {
+    const p = getSel(); if (!p) return;
+    const trimmed = p.name.trim();
+    if (!trimmed) { p.name = `MR ${planets.indexOf(p) + 1}`; } else { p.name = trimmed; }
+    nameInput.value = p.name;
+    save(); renderSummary();
+  });
+
+  stepEls.forEach((b, i) => b.addEventListener("click", () => setState(getSel(), i)));
+  removeBtn.addEventListener("click", showRemoveConfirm);
+  removeNo.addEventListener("click", () => { hideRemoveConfirm(); removeBtn.focus(); });
+  removeYes.addEventListener("click", () => { const p = getSel(); if (p) removePlanet(p); });
+
+  summaryToggle.addEventListener("click", () => setCollapsed(!summary.classList.contains("collapsed")));
+  clearAll.addEventListener("click", () => { setCollapsed(false); clearConfirm.hidden = false; clearNo.focus(); });
+  clearNo.addEventListener("click", () => { clearConfirm.hidden = true; });
+  clearYes.addEventListener("click", () => {
+    planets = []; counter = 0; clearConfirm.hidden = true;
+    save(); deselect(); renderSummary();
+  });
+
+  addEventListener("keydown", e => {
+    const inInput = e.target === nameInput;
+    if (e.key === "Escape") {
+      if (drag && drag.moved) {
+        const p = drag.p; drag = null;
+        p.dragging = false; animateTo(p, p.stops[p.state]); renderCard();
+        return;
+      }
+      if (inInput) nameInput.blur();
+      clearConfirm.hidden = true;
+      deselect();
+      return;
+    }
+    if (inInput) { if (e.key === "Enter") nameInput.blur(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "[" || e.key === "]") { e.preventDefault(); cycleSelection(e.key === "]" ? 1 : -1); return; }
+    const p = getSel(); if (!p) return;
+    if (/^[1-5]$/.test(e.key)) { e.preventDefault(); setState(p, Number(e.key) - 1); return; }
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); advance(p); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") { e.preventDefault(); back(p); }
+  });
+
+  addEventListener("resize", layout);
+  const onReduce = e => { reduce = e.matches; skyDirty = true; };
+  reduceMQ.addEventListener ? reduceMQ.addEventListener("change", onReduce) : reduceMQ.addListener(onReduce);
+
+  // ---------- Start ----------
+  load();
+  layout();
+  setCollapsed(dockMQ.matches);
+  renderSummary();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
